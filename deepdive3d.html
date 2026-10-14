@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>DeepDive 3D – Nieskończone Powiększenie</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; font-family:'Courier New',monospace; }
+canvas { display:block; }
+#hud {
+  position:fixed; top:0; left:0; right:0;
+  padding:10px 16px; display:flex; justify-content:space-between; align-items:flex-start;
+  pointer-events:none; z-index:10;
+}
+#hud-left { color:#0ff; font-size:12px; line-height:1.9; text-shadow:0 0 8px #0ff6; }
+#hud-right { color:#0f8; font-size:12px; text-align:right; text-shadow:0 0 6px #0f86; }
+#scale-bar-wrap {
+  position:fixed; left:10px; top:50%; transform:translateY(-50%);
+  width:6px; height:220px; background:#0a0a0a; border:1px solid #222; border-radius:3px; z-index:10;
+}
+#scale-bar {
+  position:absolute; bottom:0; left:0; right:0;
+  background:linear-gradient(to top,#0ff,#f0f,#f80);
+  border-radius:3px; transition:height 0.15s;
+}
+#scale-labels {
+  position:fixed; left:22px; top:50%; transform:translateY(-50%);
+  display:flex; flex-direction:column-reverse; height:220px;
+  justify-content:space-between; pointer-events:none; z-index:10;
+}
+.slabel { color:#444; font-size:9px; font-family:'Courier New',monospace; }
+.slabel.active { color:#0ff; text-shadow:0 0 6px #0ff; }
+#crosshair {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  color:#fff3; font-size:18px; pointer-events:none; z-index:10; user-select:none;
+}
+#layer-banner {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  color:#fff; font-size:28px; font-weight:bold; letter-spacing:5px;
+  text-shadow:0 0 40px currentColor; pointer-events:none; z-index:20;
+  opacity:0; transition:opacity 0.5s;
+}
+#interact-hint {
+  position:fixed; bottom:48px; left:50%; transform:translateX(-50%);
+  font-size:11px; color:#ff0; text-shadow:0 0 8px #ff0;
+  pointer-events:none; z-index:10; opacity:0; transition:opacity 0.15s; text-align:center;
+}
+#tooltip {
+  position:fixed; pointer-events:none; z-index:50;
+  background:#050f05ee; border:1px solid #0f86;
+  border-radius:4px; padding:5px 10px;
+  font-family:'Courier New',monospace; font-size:11px;
+  color:#cef; line-height:1.6; max-width:260px;
+  box-shadow:0 0 12px #0f83;
+  opacity:0; transition:opacity 0.12s;
+  transform:translate(14px,-50%);
+}
+#tooltip .tt-name { color:#0ff; font-size:12px; font-weight:bold; }
+#tooltip .tt-type { color:#888; font-size:10px; }
+#tooltip .tt-hint { color:#fa0; font-size:10px; margin-top:2px; }
+#score-flash {
+  position:fixed; top:38%; left:50%; transform:translateX(-50%);
+  color:#ff0; font-size:22px; text-shadow:0 0 16px #ff0;
+  pointer-events:none; z-index:20; opacity:0; transition:opacity 0.3s;
+}
+#tip {
+  position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+  color:#444; font-size:10px; pointer-events:none; z-index:10;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hud-left">
+    <div>WARSTWA: <span id="layer-txt" style="color:#0ff">Obudowa</span></div>
+    <div>ZOOM: <span id="zoom-txt">1.0×</span></div>
+    <div>WYNIK: <span id="score-txt">0</span></div>
+  </div>
+  <div id="hud-right">
+    <div id="obj-info" style="max-width:220px;line-height:1.6"></div>
+  </div>
+</div>
+<div id="scale-bar-wrap"><div id="scale-bar" style="height:0%"></div></div>
+<div id="scale-labels">
+  <div class="slabel" id="sl0">Obudowa</div>
+  <div class="slabel" id="sl1">Płyta główna</div>
+  <div class="slabel" id="sl2">Układ scalony</div>
+  <div class="slabel" id="sl3">Tranzystory</div>
+  <div class="slabel" id="sl4">Krzem</div>
+  <div class="slabel" id="sl5">Atomy</div>
+</div>
+<div id="crosshair">·</div>
+<div id="layer-banner" id="layer-banner"></div>
+<div id="interact-hint"></div>
+<div id="tooltip"><div class="tt-name" id="tt-name"></div><div class="tt-type" id="tt-type"></div><div class="tt-hint" id="tt-hint"></div></div>
+<div id="score-flash"></div>
+<div id="tip">WASD – lot w kier. kamery &nbsp;|&nbsp; SCROLL/Q/E – zoom &nbsp;|&nbsp; Spacja/Shift – góra/dół &nbsp;|&nbsp; PPM – obrót &nbsp;|&nbsp; LPM – interakcja</div>
+<div style="position:fixed;bottom:34px;right:14px;z-index:20;display:flex;flex-direction:column;gap:5px;">
+  <button onclick="flyTo(0,10,0,160)"            style="background:#050e05;color:#4af;border:1px solid #4af;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">⌂ Obudowa</button>
+  <button onclick="flyTo(0,8,0,40)"              style="background:#050e05;color:#0f8;border:1px solid #0f8;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">🖥 Płyta główna</button>
+  <button onclick="flyTo(-10,5,-5,6)"            style="background:#050e05;color:#fa0;border:1px solid #fa0;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">⬡ Procesor (die)</button>
+  <button onclick="flyTo(-10.55,3.2,-5.55,0.6)"  style="background:#050e05;color:#f4f;border:1px solid #f4f;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">⚡ Tranzystory</button>
+  <button onclick="flyTo(-10.55,3.1,-5.55,0.025)" style="background:#050e05;color:#ff8;border:1px solid #ff8;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">◈ Sieć krzemowa</button>
+  <button onclick="flyTo(-10.55,3.08,-5.55,0.0018)" style="background:#050e05;color:#f80;border:1px solid #f80;padding:4px 10px;font-family:'Courier New';font-size:11px;cursor:pointer;border-radius:3px;">⚛ Atomy</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RENDERER & SCENE
+// ═══════════════════════════════════════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,logarithmicDepthBuffer:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=0.85;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x00020a);
+
+// Wide camera – logarithmic depth allows HUGE range
+const camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,1e-7,100000);
+
+window.addEventListener('resize',()=>{
+  renderer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SCALE SYSTEM
+// World units: 1 unit = 1 cm at the outermost level
+// Scales (cam distance references):
+//   ~200 : full case view
+//   ~50  : motherboard overview
+//   ~8   : chip level
+//   ~1   : transistor level
+//   ~0.1 : silicon crystal lattice
+//   ~0.005: atoms
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const LAYERS = [
+  { name:'Obudowa komputera', dist:300,  color:'#4af' },
+  { name:'Płyta główna',      dist:60,   color:'#0f8' },
+  { name:'Układ scalony',     dist:10,   color:'#fa0' },
+  { name:'Tranzystory',       dist:1.5,  color:'#f4f' },
+  { name:'Sieć krzemowa',     dist:0.12, color:'#ff8' },
+  { name:'Atomy',             dist:0.008,color:'#f80' },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIGHTS
+// ═══════════════════════════════════════════════════════════════════════════════
+scene.add(new THREE.AmbientLight(0x102030,1.5));
+const sun=new THREE.DirectionalLight(0x8adfff,2.5);
+sun.position.set(40,80,50); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near=1; sun.shadow.camera.far=400;
+[-1,1,-1,1].forEach((x,i)=>{sun.shadow.camera[['left','right','bottom','top'][i]]=x*150;});
+scene.add(sun);
+const pcbGlow=new THREE.PointLight(0x00ff44,3,60); pcbGlow.position.set(0,5,0); scene.add(pcbGlow);
+const fill1=new THREE.PointLight(0x0033ff,1,200); fill1.position.set(-80,30,-60); scene.add(fill1);
+const fill2=new THREE.PointLight(0xff2200,0.6,200); fill2.position.set(80,30,60); scene.add(fill2);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+function rng(seed){ let s=seed; return ()=>{s=(s*1664525+1013904223)&0xffffffff;return(s>>>0)/0xffffffff;}; }
+function box(w,h,d,mat,par=scene){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.castShadow=true;m.receiveShadow=true;par.add(m);return m;}
+function cyl(rt,rb,h,seg,mat,par=scene){const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg),mat);m.castShadow=true;m.receiveShadow=true;par.add(m);return m;}
+function sph(r,ws,hs,mat,par=scene){const m=new THREE.Mesh(new THREE.SphereGeometry(r,ws,hs),mat);par.add(m);return m;}
+function grp(par=scene){const g=new THREE.Group();par.add(g);return g;}
+function mat(opts){return new THREE.MeshStandardMaterial(opts);}
+function cloneShared(m){return m.clone();}
+
+// Label helper
+function setL(mesh, name, type='', hint=''){
+  if(!mesh) return mesh;
+  mesh.userData.label=name;
+  mesh.userData.ltype=type;
+  mesh.userData.lhint=hint;
+  return mesh;
+}
+
+// Shared materials
+const M={
+  pcb:   mat({color:0x0a2a0a,roughness:0.7,metalness:0.1}),
+  pcbG:  mat({color:0x0d3a0d,roughness:0.5,metalness:0.05,transparent:true,opacity:0.88}),
+  cu:    mat({color:0xb87333,roughness:0.25,metalness:0.92}),
+  au:    mat({color:0xffd060,roughness:0.15,metalness:1.0}),
+  ag:    mat({color:0xcccccc,roughness:0.2,metalness:0.95}),
+  blk:   mat({color:0x111111,roughness:0.8,metalness:0.15}),
+  dkGr:  mat({color:0x2a2a2a,roughness:0.7,metalness:0.25}),
+  hs:    mat({color:0x888888,roughness:0.35,metalness:0.85}),
+  fan:   mat({color:0x1a1a1a,roughness:0.9,side:THREE.DoubleSide}),
+  si:    mat({color:0x334455,roughness:0.3,metalness:0.6}),     // silicon
+  siOx:  mat({color:0x99aacc,roughness:0.15,metalness:0.1,transparent:true,opacity:0.7}), // SiO2
+  poly:  mat({color:0x223322,roughness:0.5,metalness:0.3}),     // polysilicon gate
+  nWell: mat({color:0x4455aa,roughness:0.4,metalness:0.2}),     // N-well
+  pWell: mat({color:0xaa4433,roughness:0.4,metalness:0.2}),     // P-well
+  metal1:mat({color:0x778899,roughness:0.15,metalness:0.9}),    // metal layer 1
+  metal2:mat({color:0x99aabb,roughness:0.1,metalness:0.95}),    // metal layer 2
+  solder:mat({color:0x888866,roughness:0.3,metalness:0.8}),
+  capBl: mat({color:0x224488,roughness:0.5,metalness:0.2}),
+  capBr: mat({color:0x5c3a1e,roughness:0.7}),
+  white: mat({color:0xdddddd,roughness:0.8}),
+  eGr:   mat({color:0x00ff44,emissive:new THREE.Color(0x00ff44),emissiveIntensity:1.8,roughness:0.3}),
+  eRd:   mat({color:0xff2200,emissive:new THREE.Color(0xff2200),emissiveIntensity:2,roughness:0.3}),
+  eBl:   mat({color:0x4488ff,emissive:new THREE.Color(0x4488ff),emissiveIntensity:1.5,roughness:0.3}),
+  eAm:   mat({color:0xff8800,emissive:new THREE.Color(0xff8800),emissiveIntensity:1.5,roughness:0.3}),
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTERACTABLES
+// ═══════════════════════════════════════════════════════════════════════════════
+const interactables=[];
+let totalScore=0;
+function addIA(mesh,label,action,color='#ff0'){
+  interactables.push({mesh,label,action,color});
+}
+function flashScore(msg){
+  const el=document.getElementById('score-flash');
+  el.textContent=msg; el.style.opacity=1;
+  clearTimeout(el._t); el._t=setTimeout(()=>el.style.opacity=0,2000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 0 – COMPUTER CASE  (scale ~200–300 units)
+// ═══════════════════════════════════════════════════════════════════════════════
+const caseG=grp();
+// Case walls (glass side panel transparent)
+const caseMat=mat({color:0x1a2233,roughness:0.4,metalness:0.6,transparent:true,opacity:0.06,side:THREE.BackSide});
+const caseM=new THREE.Mesh(new THREE.BoxGeometry(200,120,100),caseMat);
+caseM.position.set(0,50,0); caseG.add(caseM);
+// Case frame edges
+[[200,2,2],[200,2,2],[2,120,2],[2,120,2],[2,2,100],[2,2,100]].forEach(([w,h,d],i)=>{
+  const e=box(w,h,d,mat({color:0x333344,roughness:0.4,metalness:0.7}),caseG);
+  var ex=i<2?0:(i<4?-99+(i%2)*198:-99+(i%2)*198);
+  var ey=i<2?(i%2)*118:50;
+  var ez=i<2?(i%2*2-1)*49:0;
+  e.position.set(ex,ey,ez);
+});
+// Case bottom
+const caseFloor=box(200,2,100,mat({color:0x111118,roughness:0.9}),caseG);
+caseFloor.position.set(0,0,0);
+// RGB strips inside case
+[-90,90].forEach((x,si)=>{
+  const strip=box(1,1,90,mat({color:0xff00ff,emissive:new THREE.Color(0xff00ff),emissiveIntensity:2}),caseG);
+  strip.position.set(x,95,0);
+  strip.userData.rgb=true; strip.userData.hue=si*0.5;
+});
+// Power supply
+const psuG=grp(caseG); psuG.position.set(70,8,-35);
+box(30,20,40,mat({color:0x222222,roughness:0.6,metalness:0.4}),psuG);
+const psuFanGrp=grp(psuG); psuFanGrp.position.set(0,10,0); psuFanGrp.userData.spin='y'; psuFanGrp.userData.spd=0.6;
+cyl(6,6,0.5,32,mat({color:0x333333,roughness:0.9}),psuFanGrp);
+for(let b=0;b<7;b++){const bl=box(4.5,0.12,1,M.fan,psuFanGrp);bl.position.set(2.5,0,0);bl.rotation.y=b*(Math.PI*2/7);bl.rotation.z=-0.3;}
+// HDD/SSD bay
+const hddG=grp(caseG); hddG.position.set(-70,20,0);
+for(let h=0;h<3;h++){
+  const hdd=box(10,2.8,14,mat({color:0x1a1a1a,roughness:0.7,metalness:0.4}),hddG);
+  hdd.position.y=h*4;
+  const hddLed=box(0.3,0.3,0.3,M.eGr,hddG); hddLed.position.set(-5.2,h*4+1,6);
+  hddLed.userData.rgb=false; // blink
+  hddLed.userData.blink=true; hddLed.userData.blinkOffset=h*0.7;
+}
+// Case fans (back)
+[-20,20].forEach((z,fi)=>{
+  const cfG=grp(caseG); cfG.position.set(90,50,z); cfG.rotation.z=Math.PI/2;
+  cfG.userData.spin='y'; cfG.userData.spd=0.9+fi*0.2;
+  cyl(11,11,1.5,32,mat({color:0x111111,roughness:0.9}),cfG);
+  for(let b=0;b<9;b++){const bl=box(8,0.15,1.5,M.fan,cfG);bl.position.set(4,0,0);bl.rotation.y=b*(Math.PI*2/9);bl.rotation.z=-0.25;}
+  addIA(cfG.children[0],`Wentylator obudowy ${fi+1} – kliknij`, ()=>{cfG.userData.spd=cfG.userData.spd>0.01?0:0.9+fi*0.2;return cfG.userData.spd>0?'Wentylator ON':'Wentylator OFF';},'#0ff');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 1 – MOTHERBOARD  (scale ~10–60 units)
+// ═══════════════════════════════════════════════════════════════════════════════
+const mbG=grp(caseG); mbG.position.set(0,1,0);
+
+// PCB substrate layers
+box(140,0.5,90,M.pcbG,mbG).position.set(0,1.0,0);
+box(140,0.8,90,M.pcb,mbG).position.set(0,0.6,0);
+box(140,0.3,90,mat({color:0x062206,roughness:0.3,metalness:0.0}),mbG).position.set(0,1.3,0);
+
+// PCB traces (Manhattan routing)
+{const r=rng(9001);
+for(let i=0;i<180;i++){
+  const lx=(r()-0.5)*130,lz=(r()-0.5)*82,len=1.5+r()*22,w=0.07+r()*0.12,horiz=r()>0.5;
+  const t=box(horiz?len:w,0.04,horiz?w:len,M.cu,mbG);
+  t.position.set(lx,1.35,lz);
+  const via=cyl(0.12,0.12,0.06,8,M.au,mbG); via.position.set(lx+(horiz?len/2:0),1.38,lz+(horiz?0:len/2));
+}}
+
+// Mounting holes + standoffs
+[[-60,-4,40],[60,-4,40],[-60,-4,-40],[60,-4,-40]].forEach(([x,y,z])=>{
+  cyl(0.6,0.6,2,12,M.ag,mbG).position.set(x,y,z);
+});
+
+// === CPU AREA ================================================================
+const cpuAreaG=grp(mbG); cpuAreaG.position.set(-10,1.4,-5);
+
+// VRM (voltage regulator modules) – row of inductors + mosfets
+const vrmR=rng(1234);
+for(let v=0;v<8;v++){
+  const vG=grp(cpuAreaG); vG.position.set(-22+v*3.2,0,-14);
+  box(2.2,1.2,1.5,M.dkGr,vG); // MOSFET
+  cyl(0.8,0.8,1.4,12,mat({color:0x333322,roughness:0.6,metalness:0.5}),vG).position.set(0,1.3,0); // inductor
+}
+
+// CPU socket LGA
+const sockG=grp(cpuAreaG);
+box(16,0.6,16,M.blk,sockG).position.set(0,0.3,0);
+// socket pins grid (only visible close up – LOD)
+const pinG=grp(sockG); pinG.userData.lodDist=8;
+{const pr=rng(2222);
+for(let pi=-12;pi<=12;pi++) for(let pj=-12;pj<=12;pj++){
+  if(Math.abs(pi)>11||Math.abs(pj)>11||pr()<0.04) continue;
+  const p=cyl(0.04,0.04,0.22,4,M.au,pinG); p.position.set(pi*0.62,0.6,pj*0.62);
+}}
+
+// CPU IHS (Integrated Heat Spreader)
+const cpuG=grp(cpuAreaG);
+box(14.5,1.0,14.5,M.ag,cpuG).position.set(0,1.1,0);
+const cpuDieWin=box(6.5,0.08,6.5,mat({color:0x111122,roughness:0.9,emissive:new THREE.Color(0x001133),emissiveIntensity:0.5}),cpuG);
+cpuDieWin.position.set(0,1.65,0);
+// Thermal paste
+{const tpr=rng(333);for(let t=0;t<8;t++){const b=sph(0.3+tpr()*0.2,6,4,M.eAm,cpuG);b.position.set((tpr()-0.5)*4,1.7,(tpr()-0.5)*4);b.scale.y=0.25;}}
+
+// CPU Heatsink (tower)
+const hsG=grp(cpuAreaG); hsG.position.set(0,2.5,0);
+box(15,0.8,15,M.hs,hsG);
+for(let f=0;f<22;f++){const fin=box(14.5,5,0.12,M.hs,hsG);fin.position.set(0,3.2,f*0.62-6.5);}
+[0,1,2].forEach(i=>{const hp=cyl(0.18,0.18,15.5,8,M.cu,hsG);hp.rotation.z=Math.PI/2;hp.position.set(0,1.5,i*2-2);});
+// CPU fan on heatsink
+const cpuFanG=grp(hsG); cpuFanG.position.set(0,7,0); cpuFanG.userData.spin='y'; cpuFanG.userData.spd=1.3;
+cyl(6.5,6.5,0.6,36,M.blk,cpuFanG); cyl(1.2,1.2,0.7,12,M.dkGr,cpuFanG);
+for(let b=0;b<7;b++){const bl=box(4.8,0.12,1.3,M.fan,cpuFanG);bl.position.set(2.8,0,0);bl.rotation.y=b*(Math.PI*2/7);bl.rotation.z=-0.32;}
+addIA(cpuFanG.children[1],'Wentylator CPU – kliknij',()=>{cpuFanG.userData.spd=cpuFanG.userData.spd>0.01?0:1.3;return cpuFanG.userData.spd>0?'CPU fan ON':'CPU fan zatrzymany';},'#0ff');
+
+// === GPU =====================================================================
+const gpuG=grp(mbG); gpuG.position.set(-15,1.5,-32); gpuG.rotation.y=Math.PI/2;
+// GPU PCB
+box(1.2,8,38,mat({color:0x0a1a0a,roughness:0.5,metalness:0.1}),gpuG);
+box(0.6,0.8,32,M.au,gpuG).position.set(0,-4,0); // edge connector
+// GPU shroud
+box(3.5,9,34,mat({color:0x111111,roughness:0.55,metalness:0.45}),gpuG).position.set(2,0.5,-1.5);
+// GPU heatsink fins
+for(let f=0;f<26;f++){const fin=box(3,5,0.1,M.hs,gpuG);fin.position.set(3,0,-12.5+f);}
+// GPU heatpipes
+[1,2.2,3.4].forEach(y=>{const hp=cyl(0.18,0.18,33,8,M.cu,gpuG);hp.rotation.z=Math.PI/2;hp.position.set(3,y,0);});
+// 3 GPU fans
+[-10,0,10].forEach((fz,fi)=>{
+  const gfG=grp(gpuG); gfG.position.set(2.5,0.3,fz);
+  gfG.userData.spin='x'; gfG.userData.spd=0.7+fi*0.15;
+  cyl(3.2,3.2,0.4,36,M.dkGr,gfG); cyl(0.8,0.8,0.5,12,M.blk,gfG);
+  for(let b=0;b<9;b++){const bl=box(2.5,0.1,0.8,M.fan,gfG);bl.position.set(1.4,0,0);bl.rotation.x=b*(Math.PI*2/9);bl.rotation.z=-0.25;}
+  addIA(gfG.children[0],`Wentylator GPU ${fi+1}`,()=>{gfG.userData.spd=gfG.userData.spd>0.01?0:0.7+fi*0.15;return gfG.userData.spd>0?'GPU fan ON':'GPU fan OFF';},'#4af');
+});
+// VRAM chips
+{const vr=rng(5555);for(let v=0;v<8;v++){const vc=box(0.3,1.2,1.4,M.blk,gpuG);vc.position.set(-0.8,vr()*1.5-0.8,v*3.8-13.5);}}
+// RGB backplate
+const gpuRGB=box(0.15,8,34,mat({color:0xff00aa,emissive:new THREE.Color(0xff00aa),emissiveIntensity:2}),gpuG);
+gpuRGB.userData.rgb=true; gpuRGB.userData.hue=0.85;
+
+// PCIe slot
+box(2,1,32,M.dkGr,mbG).position.set(-15,1.8,-32);
+
+// === RAM =====================================================================
+[-24,-18,-12,-6].forEach((xOff,ri)=>{
+  const rG=grp(mbG); rG.position.set(12+xOff,1.4,22);
+  box(1.3,7,18,mat({color:0x0a2a0a,roughness:0.5}),rG).position.set(0,4,0);
+  box(1.5,0.6,18,M.au,rG).position.set(0,0.3,0);
+  for(let c=-7;c<=7;c++){[0.85,-0.85].forEach(ox=>{const ch=box(0.28,1.0,1.2,M.blk,rG);ch.position.set(ox,3.5+c*0.45,0);});}
+  if(ri<2){
+    const hs=box(1.8,7.5,18.2,mat({color:ri===0?0x1133aa:0x991133,roughness:0.25,metalness:0.7}),rG);
+    hs.position.set(0,4.5,0);
+    const rgb=box(0.2,0.2,18,mat({color:0xffffff,emissive:new THREE.Color().setHSL(ri*0.5,1,0.5),emissiveIntensity:2.5}),rG);
+    rgb.position.set(0,8.5,0); rgb.userData.rgb=true; rgb.userData.hue=ri*0.25;
+  }
+  // retention clips
+  [8.5,-8.5].forEach(z=>{const cl=box(1.8,1,0.5,M.white,rG);cl.position.set(0,1,z);addIA(cl,`RAM ${ri+1} clip – kliknij`,()=>{rG.position.y+=rG.position.y>1.4?-5:5;return 'RAM wyciągnięty';},'#fa0');});
+});
+
+// === M.2 NVMe ================================================================
+const m2G=grp(mbG); m2G.position.set(30,1.5,18); m2G.rotation.y=-0.05;
+box(1.0,0.4,10,mat({color:0x063318,roughness:0.5}),m2G);
+[0,1,2,3].forEach(i=>{box(0.9,0.6,1.5,M.blk,m2G).position.set(0,0.5,i*2.2-3.2);});
+box(0.9,0.7,1.8,M.dkGr,m2G).position.set(0,0.55,3.2);
+const m2hs=box(1.4,0.6,10.5,M.hs,m2G); m2hs.position.set(0,1.2,0);
+addIA(m2hs,'M.2 radiator – kliknij aby zdjąć',()=>{m2hs.visible=!m2hs.visible;return m2hs.visible?'Radiator zamontowany':'Radiator zdjęty!';},'#0ff');
+
+// === CAPACITORS ==============================================================
+{const cr=rng(3333);
+for(let i=0;i<45;i++){
+  const cx=(cr()-0.5)*120,cz=(cr()-0.5)*75,ch=0.6+cr()*4,crr=0.12+cr()*0.4;
+  const cG=grp(mbG); cG.position.set(cx,1.4,cz);
+  const body=cyl(crr,crr,ch,12,cr()>0.6?M.capBl:M.capBr,cG); body.position.set(0,ch/2+0.2,0);
+  cyl(crr*0.9,crr*0.9,0.1,12,M.ag,cG).position.set(0,ch+0.25,0);
+  if(ch>2){addIA(body,`Kondensator ${(crr*crr*Math.PI*ch*0.01).toFixed(2)}μF`,()=>{totalScore+=50;document.getElementById('score-txt').textContent=totalScore;return'+50 pkt – naładowany!';},'#0f8');}
+}}
+
+// === CHIPSET =================================================================
+const csG=grp(mbG); csG.position.set(0,1.4,5);
+box(6,0.8,6,M.blk,csG).position.set(0,0.4,0);
+for(let s=0;s<4;s++){for(let p=0;p<10;p++){
+  const ang=s*Math.PI/2,px=Math.cos(ang)*3.1+Math.sin(ang)*((p-4.5)*0.55),pz=Math.sin(ang)*3.1-Math.cos(ang)*((p-4.5)*0.55);
+  box(0.07,0.1,0.4,M.solder,csG).position.set(px,0.6,pz);
+}}
+const csLabel=box(4,0.05,4,mat({color:0x111122,roughness:0.9,emissive:new THREE.Color(0x001133),emissiveIntensity:0.6}),csG);
+csLabel.position.set(0,0.85,0);
+
+// === CMOS + ATX + SATA =======================================================
+const cmosBat=cyl(2,2,0.6,24,mat({color:0x999900,roughness:0.4,metalness:0.5}),mbG);
+cmosBat.rotation.x=Math.PI/2; cmosBat.position.set(35,1.8,-22);
+addIA(cmosBat,'Bateria CMOS',()=>{cmosBat.position.y+=cmosBat.position.y>1.8?-8:8;return 'CMOS reset!';},'#ff0');
+
+const atxG=grp(mbG); atxG.position.set(64,2,4);
+box(3,4,7,M.blk,atxG); for(let r=0;r<4;r++)for(let c=0;c<6;c++){cyl(0.12,0.12,3,6,M.au,atxG).position.set(0.6-c*0.45,r*0.6-1,3.2);atxG.children[atxG.children.length-1].rotation.x=Math.PI/2;}
+
+for(let s=0;s<6;s++){const sg=grp(mbG);sg.position.set(52,1.8,s*4-12);box(1.8,2,1,M.blk,sg).position.y=1;addIA(sg.children[0],`SATA ${s+1}`,()=>{totalScore+=25;document.getElementById('score-txt').textContent=totalScore;return`SATA ${s+1} +25pkt`;},'#fa0');}
+
+// === LEDs ====================================================================
+{const lr=rng(6666);const lc=[0xff0000,0x00ff00,0xffaa00,0x0055ff,0xff00ff];
+for(let l=0;l<14;l++){
+  const lx=(lr()-0.5)*110,lz=(lr()-0.5)*72,col=lc[Math.floor(lr()*lc.length)];
+  const lmat=mat({color:col,emissive:new THREE.Color(col),emissiveIntensity:2.5});
+  const led=cyl(0.1,0.1,0.35,8,lmat,mbG); led.position.set(lx,1.8,lz);
+  const lLight=new THREE.PointLight(new THREE.Color(col),0.6,4); lLight.position.set(lx,2.2,lz); scene.add(lLight);
+  addIA(led,'LED – kliknij',()=>{led.visible=!led.visible;lLight.intensity=led.visible?0.6:0;return led.visible?'LED ON':'LED OFF';},`#${col.toString(16).padStart(6,'0')}`);
+}}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 2 – CHIP DIE (inside CPU, scale ~1–8 units)
+// The "world" CPU die – positioned where the CPU is, but the geometry is
+// TINY: the actual silicon die is ~1.5cm × ~1.5cm so ≈1.5 world units.
+// We place it exactly under the IHS at world coords of cpuAreaG.
+// ═══════════════════════════════════════════════════════════════════════════════
+const dieG=grp(); // world-space die group
+// CPU die sits at cpuAreaG world position y≈1.4+1.4(socket)+1.65(die window)
+dieG.position.set(-10,3.0,-5); // approx CPU center in world
+
+// Die substrate (silicon slab)
+const dieSub=box(1.5,0.08,1.5,M.si,dieG);
+// Core regions (8 cores visible as darker squares)
+const coreLayout=[[-.55,-.55],[-.55,-.18],[-.55,.18],[-.55,.55],[.18,-.55],[.18,-.18],[.18,.18],[.18,.55]];
+coreLayout.forEach(([cx,cz],ci)=>{
+  const coreG=grp(dieG);
+  box(0.28,0.06,0.28,mat({color:0x223355,roughness:0.3,metalness:0.5}),coreG).position.set(cx,0.05,cz);
+  // core lit indicator
+  const clit=box(0.22,0.02,0.22,mat({color:0x0033ff,emissive:new THREE.Color(0x0022cc),emissiveIntensity:0.6+ci*0.05}),coreG);
+  clit.position.set(cx,0.08,cz);
+  clit.userData.coreIdx=ci;
+  addIA(box(0.28,0.05,0.28,mat({color:0x334466,roughness:0.4,metalness:0.3,transparent:true,opacity:0.5}),coreG),`Core ${ci} – kliknij aby aktywować`,()=>{clit.material.emissiveIntensity=clit.material.emissiveIntensity>0.3?0.1:1.5;return`Core ${ci} toggled`;},'#4af');
+  coreG.position.set(0,0,0);
+});
+// Cache region
+box(0.6,0.06,1.4,mat({color:0x1a1a44,roughness:0.35,metalness:0.45}),dieG).position.set(0.3,0.05,0);
+// IO die
+box(0.3,0.06,0.6,mat({color:0x443322,roughness:0.4,metalness:0.4}),dieG).position.set(-0.62,0.05,0.4);
+// Metal interconnect grid (LOD – only near)
+const metG=grp(dieG); metG.userData.lodDist=3;
+{const mr=rng(4444);
+for(let i=0;i<60;i++){
+  const ml=box(mr()>0.5?0.6:0.008, 0.005, mr()>0.5?0.008:0.4, M.metal2, metG);
+  ml.position.set((mr()-0.5)*1.2,0.09,(mr()-0.5)*1.2);
+}
+for(let i=0;i<80;i++){
+  const ml=box(mr()>0.5?0.3:0.005, 0.004, mr()>0.5?0.005:0.2, M.metal1, metG);
+  ml.position.set((mr()-0.5)*1.4,0.07,(mr()-0.5)*1.4);
+}}
+// Bond pads on die edge
+{const bp=rng(5678);
+for(let i=0;i<60;i++){
+  const ang=i/60*Math.PI*2;
+  const pad=box(0.018,0.012,0.018,M.au,dieG);
+  pad.position.set(Math.cos(ang)*0.72,0.05,Math.sin(ang)*0.72);
+}}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 3 – TRANSISTORS  (scale ~0.1–1.5 units)
+// FinFET transistors – tiny fins of silicon, gate oxide, metal gate
+// We show a 16×16 array inside one core region
+// ═══════════════════════════════════════════════════════════════════════════════
+const tranG=grp();
+// Position inside core 0 of the die
+tranG.position.set(-10+(-0.55),3.06,-5+(-0.55));
+tranG.scale.setScalar(1); // fins are in units of 0.004 (4nm scale)
+
+const finScale=0.006; // one fin width ≈ 0.006 world units = 6nm
+
+const tranArray=grp(tranG);
+for(let row=0;row<20;row++){
+  for(let col=0;col<20;col++){
+    const tG=grp(tranArray);
+    tG.position.set(col*finScale*8 - 20*finScale*4, 0, row*finScale*8 - 20*finScale*4);
+
+    // Silicon fin (tall narrow bar)
+    const fin=box(finScale,finScale*5,finScale*1.5,M.si,tG);
+    fin.position.set(0,finScale*2.5,0);
+
+    // Gate oxide (SiO2) wraps around fin
+    const ox=box(finScale*2.5,finScale*4.5,finScale*1.5,M.siOx,tG);
+    ox.position.set(0,finScale*2.5,0);
+
+    // Polysilicon gate
+    const gate=box(finScale*1.2,finScale*5.5,finScale*0.4,M.poly,tG);
+    gate.position.set(0,finScale*2.5,0);
+
+    // Source and drain (n+ or p+ doped regions)
+    const srcMat=mat({color:0x4455bb,roughness:0.3,metalness:0.2,emissive:new THREE.Color(0x001144),emissiveIntensity:0.3});
+    const src=box(finScale,finScale*3,finScale*1.5,srcMat,tG); src.position.set(0,finScale*1.5,-finScale*2);
+    const drn=box(finScale,finScale*3,finScale*1.5,srcMat,tG); drn.position.set(0,finScale*1.5, finScale*2);
+
+    // Metal contacts on top
+    box(finScale*0.6,finScale*1.5,finScale*0.6,M.metal1,tG).position.set(0,finScale*5.5,-finScale*2);
+    box(finScale*0.6,finScale*1.5,finScale*0.6,M.metal1,tG).position.set(0,finScale*5.5, finScale*2);
+
+    // every 5th transistor is interactive (too many would be slow)
+    if((row*20+col)%7===0){
+      addIA(gate,`Tranzystor FinFET [${row},${col}] – bramka`,()=>{
+        const on=gate.material.color.getHex()!==0x00ff44;
+        gate.material=on?mat({color:0x00ff44,emissive:new THREE.Color(0x00ff44),emissiveIntensity:1,roughness:0.3}):M.poly;
+        totalScore+=10; document.getElementById('score-txt').textContent=totalScore;
+        return on?`Tranzystor [${row},${col}] ON +10`:`Tranzystor [${row},${col}] OFF`;
+      },'#0f8');
+    }
+  }
+}
+tranArray.userData.lodDist=1.2; // only show transistors when close
+
+// Metal interconnect wires above transistors
+{const mir=rng(9090);
+const wireG=grp(tranG); wireG.userData.lodDist=0.5;
+for(let w=0;w<80;w++){
+  const wl=box(mir()>0.5?finScale*15:finScale*0.5, finScale*0.5, mir()>0.5?finScale*0.5:finScale*15, M.metal1, wireG);
+  wl.position.set((mir()-0.5)*finScale*160, finScale*7, (mir()-0.5)*finScale*160);
+}
+for(let w=0;w<60;w++){
+  const wl=box(mir()>0.5?finScale*20:finScale*0.5, finScale*0.5, mir()>0.5?finScale*0.5:finScale*20, M.metal2, wireG);
+  wl.position.set((mir()-0.5)*finScale*160, finScale*8.5, (mir()-0.5)*finScale*160);
+}}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 4 – SILICON CRYSTAL LATTICE  (scale ~0.001–0.1 units)
+// Diamond cubic lattice – silicon atoms and bonds
+// ═══════════════════════════════════════════════════════════════════════════════
+const latticeG=grp();
+latticeG.position.copy(tranG.position);
+latticeG.position.x += finScale*0; // inside a fin
+
+const aS=0.0003; // atom spacing (≈0.35nm = 0.000035 world units... slightly exaggerated for visibility)
+// Actually let's use 0.0003 world units per atom so visible at dist ~0.01
+const atomMat=mat({color:0x5599cc,roughness:0.2,metalness:0.1,emissive:new THREE.Color(0x223344),emissiveIntensity:0.4});
+const bondMat=mat({color:0x334455,roughness:0.4,metalness:0.0,transparent:true,opacity:0.6});
+const latticeVis=grp(latticeG); latticeVis.userData.lodDist=0.05;
+
+// Diamond cubic unit cell positions (fractional coords scaled by aS*4)
+const unitCell=[
+  [0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5],
+  [0.25,0.25,0.25],[0.75,0.75,0.25],[0.75,0.25,0.75],[0.25,0.75,0.75]
+];
+// 5×5×5 supercell
+const aR=aS*4;
+for(let ix=0;ix<5;ix++) for(let iy=0;iy<5;iy++) for(let iz=0;iz<5;iz++){
+  unitCell.forEach(([fx,fy,fz])=>{
+    const ax=(ix+fx)*aR-(2.5*aR),ay=(iy+fy)*aR-(2.5*aR),az=(iz+fz)*aR-(2.5*aR);
+    const a=sph(aS*0.35,8,6,atomMat,latticeVis); a.position.set(ax,ay,az);
+    // bonds to nearest neighbours (simplified)
+    [[1,1,1],[1,-1,1],[1,1,-1],[1,-1,-1]].forEach(([dx,dy,dz])=>{
+      const bx=ax+dx*aS,by=ay+dy*aS,bz=az+dz*aS;
+      const len=aS*Math.sqrt(3);
+      const b=cyl(aS*0.07,aS*0.07,len,4,bondMat,latticeVis);
+      b.position.set((ax+bx)/2,(ay+by)/2,(az+bz)/2);
+      b.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(dx,dy,dz).normalize());
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ██ LAYER 5 – ATOMS (nucleus + electrons)  (scale ~0.0001 units)
+// ═══════════════════════════════════════════════════════════════════════════════
+const atomG=grp();
+atomG.position.copy(latticeG.position);
+const atomVis=grp(atomG); atomVis.userData.lodDist=0.004;
+
+// Silicon atom (14 protons) – schematic Bohr model
+// Nucleus
+const nucG=grp(atomVis);
+const nucR=0.00003;
+// Protons (red) and neutrons (blue) cluster
+{const nr=rng(7777);
+for(let n=0;n<14;n++){ // protons
+  const p=sph(nucR*0.4,6,4,mat({color:0xff2222,emissive:new THREE.Color(0xff1111),emissiveIntensity:1}),nucG);
+  p.position.set((nr()-0.5)*nucR,(nr()-0.5)*nucR,(nr()-0.5)*nucR);
+}
+for(let n=0;n<14;n++){ // neutrons
+  const nt=sph(nucR*0.4,6,4,mat({color:0x3366ff,emissive:new THREE.Color(0x1133ff),emissiveIntensity:0.8}),nucG);
+  nt.position.set((nr()-0.5)*nucR,(nr()-0.5)*nucR,(nr()-0.5)*nucR);
+}}
+
+// Electron shells (K:2, L:8, M:4 for Si)
+const shells=[
+  {r:0.00015, count:2,  col:0x00ffff, spd:3.0},
+  {r:0.00035, count:8,  col:0xffff00, spd:1.8},
+  {r:0.00055, count:4,  col:0xff8800, spd:1.0},
+];
+const electronMeshes=[];
+shells.forEach((sh,si)=>{
+  // orbit ellipse
+  const orbitPts=[]; for(let a=0;a<=64;a++) orbitPts.push(new THREE.Vector3(Math.cos(a/64*Math.PI*2)*sh.r,0,Math.sin(a/64*Math.PI*2)*sh.r));
+  const orbitLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(orbitPts),new THREE.LineBasicMaterial({color:new THREE.Color(sh.col),transparent:true,opacity:0.2}));
+  orbitLine.rotation.x=si*0.4; atomVis.add(orbitLine);
+  // electrons
+  for(let e=0;e<sh.count;e++){
+    const eMat=mat({color:sh.col,emissive:new THREE.Color(sh.col),emissiveIntensity:2.5,roughness:0.2});
+    const em=sph(nucR*0.25,6,4,eMat,atomVis);
+    em.userData.orbit=sh; em.userData.phase=e/sh.count*Math.PI*2; em.userData.tilt=si*0.4;
+    electronMeshes.push(em);
+    addIA(em,`Elektron powłoki ${['K','L','M'][si]}`,()=>{totalScore+=100;document.getElementById('score-txt').textContent=totalScore;flashScore('Elektron schwytany! +100');return null;},'#0ff');
+  }
+  // probability cloud
+  {const cr=rng(si*999);
+  for(let c=0;c<60;c++){
+    const ca=cr()*Math.PI*2,cb=cr()*Math.PI,cr2=sh.r*(0.8+cr()*0.4);
+    const cp=sph(nucR*0.06,4,3,mat({color:sh.col,transparent:true,opacity:0.15,roughness:0}),atomVis);
+    cp.position.set(cr2*Math.sin(cb)*Math.cos(ca),cr2*Math.cos(cb)*si*0.3,cr2*Math.sin(cb)*Math.sin(ca));
+  }}
+});
+
+// Add all die/transistor/lattice/atom groups to scene
+scene.add(dieG);
+scene.add(tranG);
+scene.add(latticeG);
+scene.add(atomG);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DUST + FLOOR + CASE ceiling
+// ═══════════════════════════════════════════════════════════════════════════════
+{const dr=rng(8888);const dp=new Float32Array(400*3);
+for(let i=0;i<400;i++){dp[i*3]=(dr()-0.5)*200;dp[i*3+1]=dr()*90+2;dp[i*3+2]=(dr()-0.5)*120;}
+const dust=new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(dp,3)),
+  new THREE.PointsMaterial({color:0x6688aa,size:0.18,transparent:true,opacity:0.45,sizeAttenuation:true}));
+scene.add(dust);}
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(300,200),mat({color:0x040608,roughness:0.95}));
+floor.rotation.x=-Math.PI/2; floor.position.y=-1.5; floor.receiveShadow=true; scene.add(floor);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CAMERA
+// ═══════════════════════════════════════════════════════════════════════════════
+let camDist=180, camTheta=0.3, camPhi=0.5;
+const camTarget=new THREE.Vector3(0,10,0);
+const camSmooth=camTarget.clone();
+const keys={};
+window.addEventListener('keydown',e=>{keys[e.key]=true;e.preventDefault();});
+window.addEventListener('keyup',e=>{keys[e.key]=false;});
+
+let dragging=false,lmx=0,lmy=0;
+renderer.domElement.addEventListener('mousedown',e=>{if(e.button!==0){dragging=true;lmx=e.clientX;lmy=e.clientY;}});
+window.addEventListener('mousemove',e=>{if(!dragging)return;camTheta-=(e.clientX-lmx)*0.004;camPhi=Math.max(0.05,Math.min(Math.PI/2-0.01,camPhi-(e.clientY-lmy)*0.004));lmx=e.clientX;lmy=e.clientY;});
+window.addEventListener('mouseup',e=>{if(e.button!==0)dragging=false;});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+
+window.addEventListener('wheel',e=>{
+  const f=e.deltaY>0?1.1:1/1.1;
+  camDist=Math.max(2e-5,Math.min(300,camDist*f));
+  updateHUD();
+},{passive:true});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RAYCASTER
+// ═══════════════════════════════════════════════════════════════════════════════
+const rc=new THREE.Raycaster(); rc.params.Points.threshold=0.01;
+const mouse=new THREE.Vector2();
+let hovered=null;
+const mouseRaw={x:0,y:0};
+window.addEventListener('mousemove',e=>{mouse.x=(e.clientX/innerWidth)*2-1;mouse.y=-(e.clientY/innerHeight)*2+1;mouseRaw.x=e.clientX;mouseRaw.y=e.clientY;});
+renderer.domElement.addEventListener('click',e=>{
+  if(dragging)return;
+  rc.setFromCamera(mouse,camera);
+  const hits=rc.intersectObjects(interactables.map(i=>i.mesh),true);
+  if(hits.length){
+    const item=interactables.find(i=>i.mesh===hits[0].object||i.mesh.children?.includes(hits[0].object));
+    if(item){const r=item.action();if(r){flashScore(r);}}
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LOD
+// ═══════════════════════════════════════════════════════════════════════════════
+function updateLOD(){
+  scene.traverse(obj=>{
+    if(obj.userData.lodDist!==undefined) obj.visible=camDist<=obj.userData.lodDist;
+  });
+  // hide case when very zoomed in
+  caseG.visible=camDist>4;
+  // hide MB when really deep
+  mbG.visible=camDist>0.5;
+  // show die only when zoom in enough
+  dieG.visible=camDist<12;
+  tranG.visible=camDist<1.2;
+  latticeG.visible=camDist<0.05;
+  atomG.visible=camDist<0.004;
+  // update near/far for depth precision
+  camera.near=camDist*0.0001;
+  camera.far=Math.max(500,camDist*20);
+  camera.updateProjectionMatrix();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HUD
+// ═══════════════════════════════════════════════════════════════════════════════
+const SCALE_NAMES=['Obudowa','Płyta główna','Układ scalony','Tranzystory','Krzem','Atomy'];
+const SCALE_DISTS=[300,60,10,1.5,0.12,0.008];
+let lastLayerIdx=-1;
+function updateHUD(){
+  const z=(180/camDist);
+  document.getElementById('zoom-txt').textContent=z>=1000?`${(z/1000).toFixed(0)}k×`:z>=1?`${z.toFixed(z<10?1:0)}×`:`${z.toFixed(3)}×`;
+  let li=0;
+  for(let i=SCALE_DISTS.length-1;i>=0;i--){if(camDist<=SCALE_DISTS[i]){li=i;break;}}
+  document.getElementById('layer-txt').textContent=SCALE_NAMES[li];
+  document.getElementById('layer-txt').style.color=LAYERS[li]?.color||'#0ff';
+  const pct=Math.max(0,Math.min(100,(1-Math.log(camDist)/Math.log(300))*100));
+  document.getElementById('scale-bar').style.height=pct+'%';
+  SCALE_NAMES.forEach((_,i)=>{
+    const el=document.getElementById(`sl${i}`);
+    if(el){el.className='slabel'+(i===li?' active':'');}
+  });
+  if(li!==lastLayerIdx){
+    lastLayerIdx=li;
+    const ban=document.getElementById('layer-banner');
+    ban.textContent=LAYERS[li]?.name||'';
+    ban.style.color=LAYERS[li]?.color||'#fff';
+    ban.style.opacity=1;
+    clearTimeout(ban._t); ban._t=setTimeout(()=>ban.style.opacity=0,2500);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPINNERS
+// ═══════════════════════════════════════════════════════════════════════════════
+const spinners=[];
+scene.traverse(obj=>{if(obj.userData.spin)spinners.push(obj);});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── LABEL ALL OBJECTS ─────────────────────────────────────────────────────────
+function labelAll(){
+  function lm(obj,name,type,hint){
+    if(!obj) return;
+    obj.userData.label=name;
+    obj.userData.ltype=type||'';
+    obj.userData.lhint=hint||'';
+  }
+
+  // Named groups
+  lm(caseG,'Obudowa komputera (Mid-Tower ATX)','Konstrukcja','Chroni i wentyluje podzespoły');
+  lm(caseM,'Ścianka boczna (szkło hartowane)','Obudowa','Przezroczysta ścianka boczna');
+  lm(caseFloor,'Podłoga obudowy','Obudowa','Dno skrzynki komputera');
+  lm(psuG,'Zasilacz ATX 850W','Zasilanie','Konwertuje 230V AC na 12V/5V/3.3V DC');
+  lm(psuFanGrp,'Wentylator zasilacza','Chłodzenie','Chłodzi wnętrze jednostki zasilającej');
+  lm(mbG,'Płyta główna (ATX)','PCB','Łączy wszystkie podzespoły systemu');
+  lm(sockG,'Gniazdo procesora LGA 1700','Złącze','1700 styków – Intel 12/13/14 gen.');
+  lm(pinG,'Matryca styków LGA (sprężynowe piny)','Złącze','Styki podbierające nóżki procesora');
+  lm(cpuG,'Procesor Intel (CPU)','CPU','Central Processing Unit – główna jednostka obliczeniowa');
+  lm(cpuDieWin,'Okienko die CPU przez IHS','CPU','Widoczne jądro krzemu pod pokrywą IHS');
+  lm(hsG,'Radiator CPU (Tower Cooler)','Chłodzenie','Aluminiowe lamele + miedziane heatpipe');
+  lm(cpuFanG,'Wentylator radiatora CPU 120mm','Chłodzenie','Tłoczy powietrze przez lamele radiatora');
+  lm(csG,'Chipset płyty głównej (PCH)','Układ scalony','Platform Controller Hub – steruje I/O');
+  lm(csLabel,'Znacznik identyfikacyjny chipsetu','Układ scalony','Nadruk na obudowie układu scalonego');
+  lm(m2G,'Dysk SSD M.2 NVMe 2280','Pamięć masowa','PCIe Gen4 x4, do 7000 MB/s');
+  lm(m2hs,'Radiator dysku M.2','Chłodzenie','Odprowadza ciepło z kości NAND Flash');
+  lm(atxG,'Złącze zasilające ATX 24-pin','Zasilanie','Główne zasilanie płyty głównej od PSU');
+  lm(cmosBat,'Bateria CMOS CR2032 (3V)','Zasilanie','Podtrzymuje RTC i ustawienia BIOS przy braku zasilania');
+  lm(gpuG,'Karta graficzna (GPU)','Karta graficzna','Graphics Processing Unit – renderuje obraz');
+  lm(gpuRGB,'Pasek RGB (backplate GPU)','Estetyka','Dekoracyjny pasek diod LED RGB');
+  lm(dieG,'Jądro krzemu – silicon die CPU','Die CPU','Monokrystaliczny krzem z milionami tranzystorów');
+  lm(dieSub,'Podłoże die (wafer krzemowy)','Die CPU','Wycięty płatek z monokrystalicznego wafla Si');
+  lm(metG,'Sieć metalizacji (interconnect)','Die CPU','Miedziane ścieżki łączące tranzystory – warstwy M1/M2');
+  lm(tranG,'Matryca tranzystorów FinFET 7nm','Tranzystory','Podstawowa jednostka logiki cyfrowej – przełącznik elektroniczny');
+  lm(tranArray,'Tablica FinFET 20×20','Tranzystory','Fragment rdzenia CPU w skali nanometrów');
+  lm(latticeG,'Sieć krystaliczna krzemu','Sieć krystaliczna','Układ diamentowy – 2 atomy na komórkę elementarną');
+  lm(latticeVis,'Superkomórka Si 5×5×5','Sieć krystaliczna','125 komórek elementarnych sieci diamentowej krzemu');
+  lm(atomG,'Model atomu krzemu (Si, Z=14)','Atom','14 protonów, 14 neutronów, 4 elektrony walencyjne');
+  lm(atomVis,'Powłoki elektronowe (model Bohra)','Atom','K(2e) L(8e) M(4e) – schematyczny model orbitalny');
+  lm(nucG,'Jądro atomowe krzemu','Jądro','14p + 14n; średnica ~8 fm (10⁻¹⁵ m)');
+
+  // Traverse scene for unlabelled geometry
+  scene.traverse(obj=>{
+    if(obj.userData.label) return;
+    const g=obj.geometry, m=obj.material;
+    if(!g) return;
+    const sz=new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
+    const gt=g.type;
+    const mc=m&&m.color?m.color.getHex():null;
+    const fs=0.006; // finScale
+
+    // --- ATOM LEVEL ---
+    if(obj.parent===nucG){
+      if(mc===0xff2222) { lm(obj,'Proton (+e, kolor czerwony)','Jądro','Barion z kwarków uud; masa 1.67×10⁻²⁷ kg'); return; }
+      if(mc===0x3366ff) { lm(obj,'Neutron (obojętny, kolor niebieski)','Jądro','Barion z kwarków udd; stabilizuje jądro'); return; }
+    }
+    if(obj.parent===atomVis){
+      if(obj.type==='Line') { lm(obj,'Orbita elektronowa (schematyczna)','Atom','Uproszczona wizualizacja – rzeczywistość to orbital kwantowy'); return; }
+      if(gt==='SphereGeometry'&&m&&m.transparent&&m.opacity<0.3) { lm(obj,'Chmura prawdopodobieństwa (orbital)','Kwantowa','Gęstość prawdopodobieństwa znalezienia elektronu w przestrzeni'); return; }
+    }
+    // electron meshes (already in interactables, get label from there)
+    if(gt==='SphereGeometry'&&sz.x<0.0002&&obj.parent===atomVis){
+      lm(obj,'Elektron (powłoka walencyjna)','Atom','Ładunek -e; masa 9.1×10⁻³¹ kg'); return;
+    }
+
+    // --- LATTICE LEVEL ---
+    if(obj.parent===latticeVis||obj.parent?.parent===latticeVis){
+      if(gt==='SphereGeometry') { lm(obj,'Atom krzemu (Si)','Sieć krystaliczna','Z=14; sieć sp³ diamentowa; stała sieciowa 5.43 Å'); return; }
+      if(gt==='CylinderGeometry') { lm(obj,'Wiązanie kowalencyjne Si–Si','Sieć krystaliczna','Wspólna para elektronów; długość ~2.35 Å'); return; }
+    }
+
+    // --- TRANSISTOR LEVEL ---
+    if(sz.x<fs*2&&sz.y>fs*4&&sz.z<fs*2&&mc===0x334455) { lm(obj,'Fin krzemowy (FinFET)','FinFET','Pionowy grzebień Si – kanał przepływu elektronów'); return; }
+    if(sz.x<fs*4&&sz.y>fs*3&&mc===0x99aacc&&m&&m.transparent) { lm(obj,'Tlenek bramki SiO₂','FinFET','Warstwa izolacyjna ~0.5 nm – zapobiega upływności prądu bramki'); return; }
+    if(sz.x<fs*2&&sz.z<fs*1&&sz.y>fs*4&&mc===0x223322) { lm(obj,'Bramka polikrzemowa (gate electrode)','FinFET','Napięcie na bramce otwiera/zamyka kanał tranzystora'); return; }
+    if(sz.x<fs*2&&sz.y>fs*2&&sz.y<fs*4&&mc===0x4455bb) { lm(obj,'Źródło lub dren (n+/p+)','FinFET','Obszar silnie domieszkowany – elektrody tranzystora'); return; }
+    if(sz.x<fs*1&&sz.y>fs*1&&sz.y<fs*2.5&&sz.z<fs*1&&mc===0x778899) { lm(obj,'Kontakt metaliczny M0 (via)','FinFET','Łączy fin z pierwszą warstwą metalizacji'); return; }
+    if(sz.y<fs*1&&(sz.x>fs*5||sz.z>fs*5)&&mc===0x778899) { lm(obj,'Ścieżka metalizacji M1 (miedź)','Interconnect','Pierwsza warstwa połączeń; szerokość ~5 nm'); return; }
+    if(sz.y<fs*1&&(sz.x>fs*5||sz.z>fs*5)&&mc===0x99aabb) { lm(obj,'Ścieżka metalizacji M2 (miedź)','Interconnect','Ortogonalna warstwa połączeń; szerokość ~7 nm'); return; }
+
+    // --- DIE LEVEL ---
+    if(sz.x<0.025&&sz.y<0.015&&sz.z<0.025&&mc===0xffd060) { lm(obj,'Pad kontaktowy die (Au)','Die CPU','Złoty punkt łączący die z obudową pakietu przez drut bondingowy'); return; }
+    if(sz.x>0.4&&sz.x<0.35&&sz.y<0.07&&mc===0x223355) { lm(obj,'Region rdzenia CPU na die','Die CPU','Obszar jednego rdzenia obliczeniowego'); return; }
+
+    // --- MOTHERBOARD LEVEL ---
+    // PCB traces
+    if(sz.y<0.07&&(sz.x>1.5||sz.z>1.5)&&(mc===0xb87333)) { lm(obj,'Ścieżka PCB (miedź)','PCB','Przewodząca ścieżka miedziana łącząca podzespoły'); return; }
+    // Vias
+    if(gt==='CylinderGeometry'&&sz.x<0.28&&sz.y<0.1) { lm(obj,'Przelotka PCB (via)','PCB','Otwór metalizowany łączący warstwy PCB'); return; }
+    // Heatsink fins CPU
+    if(sz.x>13&&sz.y>4&&sz.z<0.2) { lm(obj,'Lamela radiatora CPU (Al)','Chłodzenie','Aluminiowa płetwa zwiększająca powierzchnię wymiany ciepła'); return; }
+    // Heatsink fins GPU
+    if(sz.x>2&&sz.x<4&&sz.y>3&&sz.z<0.15) { lm(obj,'Lamela radiatora GPU (Al)','Chłodzenie','Aluminiowa płetwa odprowadzająca ciepło GPU'); return; }
+    // Heatpipes (long thin cylinders)
+    if(gt==='CylinderGeometry'&&sz.x>0.3&&sz.x<0.42&&(sz.y>12||sz.z>12)) { lm(obj,'Heatpipe (rura cieplna, miedź)','Chłodzenie','Parowanie/skraplanie cieczy przenosi ciepło z CPU/GPU do radiatora'); return; }
+    // Capacitors electrolytic (tall cylinders)
+    if(gt==='CylinderGeometry'&&sz.x>0.25&&sz.x<1.1&&sz.y>1.5) { lm(obj,'Kondensator elektrolityczny','Kondensator','Filtruje tętnienia napięcia; pojemność 10–1000 μF'); return; }
+    // Capacitor top silver lid
+    if(gt==='CylinderGeometry'&&sz.x>0.2&&sz.y<0.15&&mc===0xcccccc) { lm(obj,'Pokrywka kondensatora (Al)','Kondensator','Zawór bezpieczeństwa kondensatora elektrolitycznego'); return; }
+    // Standoffs
+    if(gt==='CylinderGeometry'&&sz.x>1.0&&sz.x<1.4&&sz.y>1.5&&sz.y<2.6) { lm(obj,'Dystans montażowy PCB (mosiądz)','Mechanika','Unosi PCB nad metalem obudowy, uziemia przez obudowę'); return; }
+    // Fan blades
+    if(m&&m.side===THREE.DoubleSide) { lm(obj,'Łopatka wentylatora','Chłodzenie','Aerodynamiczny kształt generuje ciśnienie powietrza'); return; }
+    // Fan rings (large cylinders)
+    if(gt==='CylinderGeometry'&&sz.x>8&&sz.y<3) { lm(obj,'Ramka wentylatora','Chłodzenie','Obudowa kieruje przepływ powietrza'); return; }
+    // RAM PCB board
+    if(sz.x>1&&sz.x<1.5&&sz.y>6&&sz.y<8&&sz.z>16) { lm(obj,'PCB modułu RAM DDR5','Pamięć','Zielona płytka z kośćmi DRAM'); return; }
+    // RAM heat spreader
+    if(sz.x>1.5&&sz.x<2.3&&sz.y>7&&sz.z>16&&m&&m.metalness>0.5) { lm(obj,'Heat spreader RAM (aluminium)','Pamięć','Aluminiowa osłona rozpraszająca ciepło kości DRAM'); return; }
+    // RAM RGB strip
+    if(sz.x<0.3&&sz.y<0.3&&sz.z>16&&obj.userData.rgb) { lm(obj,'Pasek RGB RAM','Estetyka','Diody LED podświetlające moduł pamięci'); return; }
+    // RAM chips
+    if(sz.x>0.2&&sz.x<0.35&&sz.y>0.9&&sz.y<1.1&&sz.z>1&&sz.z<1.3&&mc===0x111111) { lm(obj,'Kość DRAM (DDR5)','Pamięć','Układ pamięci dynamicznej – przechowuje dane robocze CPU'); return; }
+    // RAM gold edge
+    if(sz.x>1.3&&sz.x<1.6&&sz.y<0.7&&sz.z>16) { lm(obj,'Złote styki krawędziowe RAM','Złącze','Galwanizowane złotem kontakty DIMM'); return; }
+    // RAM retention clips
+    if(sz.x>1.6&&sz.y>0.8&&sz.y<1.2&&sz.z<0.7) { lm(obj,'Zatrzask gniazda DIMM','Złącze','Blokuje moduł RAM w gnieździe'); return; }
+    // GPU PCB
+    if(sz.x<1.5&&sz.y>7&&sz.z>35) { lm(obj,'PCB karty graficznej','Karta graficzna','Wielowarstwowa płytka obwodów drukowanych GPU'); return; }
+    // GPU edge connector gold
+    if(sz.x<0.7&&sz.y<1&&sz.z>28&&mc===0xffd060) { lm(obj,'Styki PCIe GPU (gold finger)','Złącze','Złocone kontakty złącza PCIe x16'); return; }
+    // GPU shroud
+    if(sz.x>3&&sz.y>8&&sz.z>30) { lm(obj,'Osłona chłodzenia GPU (shroud)','Karta graficzna','Plastikowa/metalowa obudowa układu chłodzenia'); return; }
+    // VRAM chips
+    if(sz.x<0.4&&sz.y>1&&sz.y<1.4&&sz.z>1.2&&sz.z<1.6&&mc===0x111111) { lm(obj,'Kość VRAM GDDR6X','Pamięć graficzna','Dedykowana pamięć wideo – do 24 GB, 1 TB/s'); return; }
+    // GPU 8-pin power
+    if(sz.x<2&&sz.y<2&&sz.z>2&&sz.z<2.5&&mc===0x111111) { lm(obj,'Złącze zasilania GPU 8-pin','Zasilanie','Dostarcza dodatkowe 150W dla karty graficznej'); return; }
+    // ATX power pins (gold cylinders pointing z)
+    if(gt==='CylinderGeometry'&&sz.x<0.28&&sz.y>2.5&&mc===0xffd060) { lm(obj,'Pin złącza ATX (złocony)','Zasilanie','Kontakt elektryczny złącza zasilającego płytę'); return; }
+    // Cables
+    if(gt==='CylinderGeometry'&&sz.x>0.2&&sz.x<0.3&&sz.y>8) { lm(obj,'Kabel zasilający PSU','Zasilanie','Izolowany przewód miedziany prowadzący napięcie DC'); return; }
+    // HDD
+    if(sz.x>8&&sz.y>1&&sz.y<4&&sz.z>11&&sz.z<16) { lm(obj,'Napęd 2.5" (HDD/SSD)','Pamięć masowa','Dysk twardy lub SSD w formacie 2.5 cala'); return; }
+    // HDD activity LED
+    if(sz.x<0.5&&sz.y<0.5&&sz.z<0.5&&m&&m.emissiveIntensity>1) { lm(obj,'Dioda LED aktywności','Wskaźnik','Sygnalizuje operacje odczytu/zapisu dysku'); return; }
+    // SATA ports
+    if(sz.x>1.5&&sz.x<2.2&&sz.y>1.5&&sz.y<2.5&&sz.z>0.8&&sz.z<1.2&&mc===0x111111) { lm(obj,'Port SATA 6Gb/s','Złącze','Serial ATA III – złącze dysków twardych i SSD'); return; }
+    // Case frame edges
+    if(sz.x>80&&sz.y<3&&sz.z<3) { lm(obj,'Rama obudowy – pozioma','Obudowa','Stalowa konstrukcja nośna obudowy ATX'); return; }
+    if(sz.x<3&&sz.y>80&&sz.z<3) { lm(obj,'Rama obudowy – pionowa','Obudowa','Stalowa konstrukcja nośna obudowy ATX'); return; }
+    if(sz.x<3&&sz.y<3&&sz.z>80) { lm(obj,'Rama obudowy – głębokościowa','Obudowa','Stalowa konstrukcja nośna obudowy ATX'); return; }
+    // PSU body
+    if(sz.x>24&&sz.y>14&&sz.z>34) { lm(obj,'Obudowa zasilacza (PSU)','Zasilanie','Metalowa obudowa jednostki zasilającej'); return; }
+    // Case RGB strips
+    if(sz.x<1.5&&sz.y<1.5&&sz.z>80&&obj.userData.rgb) { lm(obj,'Pasek RGB obudowy','Estetyka','Diody LED dekorujące wnętrze obudowy'); return; }
+    // IO panel
+    if(sz.x<1&&sz.y>5&&sz.z>16) { lm(obj,'Panel I/O tylnej ścianki','Złącze','Blaszana osłona portów zewnętrznych (USB, audio, sieć)'); return; }
+    // Chipset SMD pins
+    if(sz.x<0.12&&sz.y<0.15&&sz.z>0.32&&sz.z<0.45&&mc===0x888866) { lm(obj,'Nóżka SMD (QFP)','Układ scalony','Styk montażu powierzchniowego chipsetu'); return; }
+    // Front panel header pins
+    if(gt==='CylinderGeometry'&&sz.x<0.18&&sz.y<0.65) { lm(obj,'Pin nagłówka F_PANEL','Złącze','Styk złącza panelu przedniego'); return; }
+    // PWR LED
+    if(sz.x<0.5&&sz.y<0.5&&sz.z<0.5&&m&&m.emissive&&m.emissiveIntensity>1) { if(!obj.userData.label) lm(obj,'LED zasilania (PWR LED)','Wskaźnik','Świeci gdy komputer jest włączony'); return; }
+    // VRM MOSFETs
+    if(sz.x>1.8&&sz.x<2.6&&sz.y>0.9&&sz.y<1.5&&sz.z>1.2&&sz.z<1.8) { lm(obj,'MOSFET VRM (tranzystor mocy)','VRM','Kluczuje napięcie z wysoką częstotliwością (>500 kHz)'); return; }
+    // VRM inductors
+    if(gt==='CylinderGeometry'&&sz.x>1.2&&sz.x<1.8&&sz.y>1.1&&sz.y<1.7) { lm(obj,'Induktor VRM (cewka)','VRM','Przechowuje energię magnetyczną; wygładza napięcie CPU'); return; }
+    // MOSFET leads
+    if(sz.x<0.2&&sz.y<1&&sz.z<0.15) { lm(obj,'Nóżka MOSFET','VRM','Styk montażowy tranzystora mocy'); return; }
+    // M.2 NAND
+    if(sz.x<1&&sz.y<0.65&&sz.z>1.2&&sz.z<1.7) { lm(obj,'Kość NAND Flash (MLC/TLC/QLC)','Pamięć masowa','Komórki pamięci nieulotnej – przechowują dane stale'); return; }
+    // M.2 controller
+    if(sz.x<1&&sz.y>0.65&&sz.y<0.8&&sz.z>1.7&&sz.z<2.1) { lm(obj,'Kontroler NVMe','Układ scalony','Zarządza algorytmami FTL, ECC i kolejkowaniem poleceń'); return; }
+    // Thermal paste blobs
+    if(gt==='SphereGeometry'&&sz.y<0.2&&sz.x>0.35&&sz.x<0.65) { lm(obj,'Pasta termoprzewodząca (TIM)','Chłodzenie','Wypełnia mikronierówności między IHS a radiatorem; λ ~5 W/mK'); return; }
+    // IHS
+    if(sz.x>13&&sz.x<16&&sz.y<1.2&&sz.z>13&&sz.z<16&&mc===0xcccccc) { lm(obj,'Pokrywa IHS procesora (nierdzewna)','CPU','Integrated Heat Spreader – rozprowadza ciepło z die'); return; }
+    // CPU socket black base
+    if(sz.x>15&&sz.x<17&&sz.y<0.8&&sz.z>15) { lm(obj,'Podstawa gniazda CPU (plastik)','Złącze','Obudowa gniazda z zatrzaskami mocującymi procesor'); return; }
+    // Dust
+    if(obj.type==='Points') { lm(obj,'Kurz (cząstki stałe)','Środowisko','Unoszące się drobiny kurzu wewnątrz obudowy'); return; }
+  });
+}
+
+// LOOP
+// ═══════════════════════════════════════════════════════════════════════════════
+let prev=0,t0=Date.now();
+function animate(ts){
+  requestAnimationFrame(animate);
+  const dt=Math.min(0.05,(ts-prev)/1000); prev=ts;
+  const T=(Date.now()-t0)/1000;
+
+  // Spin fans
+  spinners.forEach(o=>{if(o.userData.spd>0)o.rotation[o.userData.spin]+=o.userData.spd*dt*6;});
+
+  // RGB rainbow
+  scene.traverse(o=>{
+    if(o.userData.rgb){
+      const h=(T*0.12+o.userData.hue)%1;
+      const c=new THREE.Color().setHSL(h,1,0.5);
+      if(o.material?.emissive)o.material.emissive.set(c);
+      if(o.material?.color)o.material.color.set(c);
+    }
+  });
+
+  // Electron orbital animation
+  electronMeshes.forEach(e=>{
+    const sh=e.userData.orbit;
+    const phase=e.userData.phase+T*sh.spd;
+    const tilt=e.userData.tilt;
+    e.position.set(Math.cos(phase)*sh.r,Math.sin(phase)*sh.r*Math.sin(tilt),Math.sin(phase)*sh.r*Math.cos(tilt));
+  });
+
+  // PCB pulse
+  pcbGlow.intensity=1.8+0.6*Math.sin(T*0.9);
+
+  // Camera
+  const spd=Math.max(1e-6,camDist*0.018);
+  // Direction camera looks = from camera toward camTarget (negate orbit offset)
+  const fwd=new THREE.Vector3(
+    -Math.sin(camTheta)*Math.cos(camPhi),
+    -Math.sin(camPhi),
+    -Math.cos(camTheta)*Math.cos(camPhi)
+  ).normalize();
+  const right=new THREE.Vector3(
+    Math.cos(camTheta),
+    0,
+    -Math.sin(camTheta)
+  ).normalize();
+  const up=new THREE.Vector3(0,1,0);
+  if(keys['w']||keys['W']||keys['ArrowUp'])    camTarget.addScaledVector(fwd,spd);
+  if(keys['s']||keys['S']||keys['ArrowDown'])  camTarget.addScaledVector(fwd,-spd);
+  if(keys['a']||keys['A']||keys['ArrowLeft'])  camTarget.addScaledVector(right,-spd);
+  if(keys['d']||keys['D']||keys['ArrowRight']) camTarget.addScaledVector(right,spd);
+  if(keys['q']||keys['Q']){camDist=Math.max(2e-5,camDist*0.97);updateHUD();}
+  if(keys['e']||keys['E']){camDist=Math.min(300,camDist*1.03);updateHUD();}
+  if(keys[' '])    camTarget.addScaledVector(up, spd);
+  if(keys['Shift'])camTarget.addScaledVector(up,-spd);
+
+  camSmooth.lerp(camTarget,0.07);
+  camera.position.set(
+    camSmooth.x+camDist*Math.sin(camTheta)*Math.cos(camPhi),
+    camSmooth.y+camDist*Math.sin(camPhi),
+    camSmooth.z+camDist*Math.cos(camTheta)*Math.cos(camPhi)
+  );
+  camera.lookAt(camSmooth);
+
+  // Hover – check ALL meshes for userData.label, show floating tooltip
+  rc.setFromCamera(mouse,camera);
+  const allMeshes=[]; scene.traverse(o=>{if(o.isMesh||o.type==='Line'||o.type==='Points') allMeshes.push(o);});
+  const hits=rc.intersectObjects(allMeshes,false);
+  const tt=document.getElementById('tooltip');
+  const iHint=document.getElementById('interact-hint');
+
+  // Find first hit that has a label (skip fully transparent objects)
+  let labelHit=null;
+  for(const h of hits){
+    const o=h.object;
+    if(o.material&&o.material.opacity!==undefined&&o.material.opacity<0.05) continue;
+    if(o.userData.label){ labelHit={obj:o,dist:h.distance}; break; }
+    // walk up parents for group labels
+    let p=o.parent;
+    while(p&&p!==scene){
+      if(p.userData.label){ labelHit={obj:p,dist:h.distance}; break; }
+      p=p.parent;
+    }
+    if(labelHit) break;
+  }
+
+  if(labelHit){
+    const o=labelHit.obj;
+    document.getElementById('tt-name').textContent=o.userData.label||'';
+    document.getElementById('tt-type').textContent=o.userData.ltype||'';
+    document.getElementById('tt-hint').textContent=o.userData.lhint||'';
+    // position tooltip: follow mouse, keep on screen
+    const mx=mouseRaw.x, my=mouseRaw.y;
+    const ttW=280, ttH=70;
+    let tx=mx+16, ty=my-30;
+    if(tx+ttW>innerWidth) tx=mx-ttW-8;
+    if(ty+ttH>innerHeight) ty=innerHeight-ttH-8;
+    if(ty<8) ty=8;
+    tt.style.left=tx+'px'; tt.style.top=ty+'px';
+    tt.style.borderColor=(o.userData.lcolor||'#0f8')+'88';
+    tt.style.opacity=1;
+    // interactable hint
+    const ia=interactables.find(i=>i.mesh===o||i.mesh===o.parent);
+    if(ia){iHint.style.opacity=1;iHint.textContent='[KLIKNIJ] '+ia.label;iHint.style.color=ia.color;}
+    else iHint.style.opacity=0;
+    document.getElementById('obj-info').textContent=o.userData.label||'';
+  } else {
+    tt.style.opacity=0;
+    iHint.style.opacity=0;
+    document.getElementById('obj-info').textContent='';
+  }
+
+  updateLOD();
+  renderer.render(scene,camera);
+}
+labelAll();
+updateHUD();
+
+// ── QUICK NAVIGATION ──────────────────────────────────────────────────────────
+function flyTo(tx,ty,tz,dist){
+  camTarget.set(tx,ty,tz);
+  camSmooth.set(tx,ty,tz);
+  camDist=dist;
+  updateHUD();
+}
+
+animate(0);
+</script>
+</body>
+</html>
